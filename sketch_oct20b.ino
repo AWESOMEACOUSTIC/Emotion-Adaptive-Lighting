@@ -1,6 +1,5 @@
 #include <LiquidCrystal.h>
 
-//—— Pin Definitions ——//
 #define LDR_PIN    A0    // ambient light sensor
 #define PIR_PIN    2     // motion detector
 #define DHT_PIN    3     // DHT22 data pin
@@ -8,22 +7,18 @@
 #define GREEN_PIN 10     // G-channel
 #define BLUE_PIN  11     // B-channel
 
-// LCD pins: RS, EN, D4, D5, D6, D7
 LiquidCrystal lcd(12, 8, 4, 5, 6, 7);
 
-//—— DHT22 bit-bang driver ——//
 uint8_t dhtData[5];
 bool readDHT22(float &T, float &H) {
   unsigned long t;
-  // 1) START SIGNAL
   pinMode(DHT_PIN, OUTPUT);
   digitalWrite(DHT_PIN, LOW);
-  delay(1);                // >0.8 ms
+  delay(1);              
   digitalWrite(DHT_PIN, HIGH);
   delayMicroseconds(30);
   pinMode(DHT_PIN, INPUT_PULLUP);
 
-  // 2) ACK
   t = micros();
   while (digitalRead(DHT_PIN) == HIGH)
     if (micros() - t > 100) return false;
@@ -34,14 +29,11 @@ bool readDHT22(float &T, float &H) {
   while (digitalRead(DHT_PIN) == HIGH)
     if (micros() - t > 100) return false;
 
-  // 3) READ 40 BITS
   memset(dhtData, 0, 5);
   for (int bit = 0; bit < 40; bit++) {
-    // wait for LOW
     t = micros();
     while (digitalRead(DHT_PIN) == LOW)
       if (micros() - t > 100) return false;
-    // measure length of subsequent HIGH
     t = micros();
     while (digitalRead(DHT_PIN) == HIGH)
       if (micros() - t > 100) return false;
@@ -50,11 +42,9 @@ bool readDHT22(float &T, float &H) {
     }
   }
 
-  // 4) CRC check
   uint8_t sum = dhtData[0] + dhtData[1] + dhtData[2] + dhtData[3];
   if (sum != dhtData[4]) return false;
 
-  // 5) PARSE
   uint16_t rawH = (dhtData[0] << 8) | dhtData[1];
   uint16_t rawT = (dhtData[2] << 8) | dhtData[3];
   H = rawH * 0.1;
@@ -67,24 +57,21 @@ bool readDHT22(float &T, float &H) {
   return true;
 }
 
-//—— Globals for smoothing & timing ——//
 float activityScore = 1.0;
 const float alphaUp   = 0.05, alphaDown = 0.02;
 
 unsigned long lastLCD   = 0;
-const unsigned long LCD_INTERVAL = 1000;  // ms
+const unsigned long LCD_INTERVAL = 1000; 
 
 void setup() {
   Serial.begin(9600);
 
-  // I/O setup
   pinMode(PIR_PIN, INPUT);
   pinMode(RED_PIN, OUTPUT);
   pinMode(GREEN_PIN, OUTPUT);
   pinMode(BLUE_PIN, OUTPUT);
   pinMode(DHT_PIN, INPUT_PULLUP);
 
-  // LCD init
   lcd.begin(16, 2);
   lcd.print("EmotionLamp v1");
   delay(1500);
@@ -93,27 +80,21 @@ void setup() {
 
 void loop() {
   unsigned long now = millis();
-
-  // 1) READ SENSORS
-  int  ldrVal = analogRead(LDR_PIN);          // 0–1023
+  int  ldrVal = analogRead(LDR_PIN);         
   bool motion = (digitalRead(PIR_PIN) == HIGH);
 
-  // Exponential moving avg of motion
   if (motion)
     activityScore += alphaUp * (1.0 - activityScore);
   else
     activityScore -= alphaDown * activityScore;
   activityScore = constrain(activityScore, 0.0, 1.0);
 
-  // 2) READ DHT22 EVERY LOOP (instant reflection in Tinkercad)
   static float tempC = 25, hum = 50;
   float t, h;
   if (readDHT22(t, h)) {
     tempC = t;
     hum   = h;
   }
-
-  // 3) COMPUTE CCT (by “hour”) & apply comfort nudge
   int hourOfDay = (millis() / 1000) % 24;
   int cct = (hourOfDay < 7  ? 2700 :
              hourOfDay < 11 ? 6000 :
@@ -127,11 +108,9 @@ void loop() {
     cct = min(cct + 300, 6500);
   }
 
-  // 4) BRIGHTNESS CAP (glare guard)
   int bright = map(ldrVal, 0, 1023, 255, 127);
   bright = constrain(bright, 127, 255);
 
-  // 5) CCT → RGB lookup
   byte rTbl, gTbl, bTbl;
   if      (cct <= 2700) { rTbl = 255; gTbl = 147; bTbl =  44; }
   else if (cct <= 3200) { rTbl = 255; gTbl = 180; bTbl = 107; }
@@ -147,9 +126,7 @@ void loop() {
   analogWrite(GREEN_PIN, gPWM);
   analogWrite(BLUE_PIN,  bPWM);
 
-  // 6) UPDATE LCD & SERIAL once per second
   if (now - lastLCD > LCD_INTERVAL) {
-    // LCD line 1
     lcd.clear();
     lcd.setCursor(0, 0);
     lcd.print("T:");
@@ -158,7 +135,6 @@ void loop() {
     lcd.print(hum, 0);
     lcd.print("%");
 
-    // LCD line 2
     lcd.setCursor(0, 1);
     lcd.print("CCT:");
     lcd.print(cct);
